@@ -7,12 +7,11 @@ import { AppLayout } from "@/components/layout/app-layout";
 import NotFound from "@/pages/not-found";
 
 import Dashboard from "@/pages/dashboard";
-import KeysList from "@/pages/keys/index";
-import KeyAdd from "@/pages/keys/add";
-import KeyDetail from "@/pages/keys/detail";
-import PendingList from "@/pages/pending/index";
-import AuditLog from "@/pages/log/index";
-import Settings from "@/pages/settings/index";
+import NostrPage from "@/pages/nostr";
+import VaultPage from "@/pages/vault";
+import ActivityPage from "@/pages/activity";
+import AddPage from "@/pages/add";
+import CredentialDetail from "@/pages/credential";
 
 const queryClient = new QueryClient();
 
@@ -21,12 +20,11 @@ function Router() {
     <AppLayout>
       <Switch>
         <Route path="/" component={Dashboard} />
-        <Route path="/keys" component={KeysList} />
-        <Route path="/keys/add" component={KeyAdd} />
-        <Route path="/keys/:id" component={KeyDetail} />
-        <Route path="/pending" component={PendingList} />
-        <Route path="/log" component={AuditLog} />
-        <Route path="/settings" component={Settings} />
+        <Route path="/nostr" component={NostrPage} />
+        <Route path="/vault" component={VaultPage} />
+        <Route path="/activity" component={ActivityPage} />
+        <Route path="/add" component={AddPage} />
+        <Route path="/credential/:id" component={CredentialDetail} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
@@ -35,7 +33,7 @@ function Router() {
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="dark" storageKey="nosthenticator-theme">
+    <ThemeProvider defaultTheme="light" storageKey="nosthenticator-theme">
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
