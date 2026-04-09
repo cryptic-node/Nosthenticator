@@ -1,0 +1,388 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Nosthenticator API — Nostr signing device companion
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: keys
+    description: Nostr key management
+  - name: signing
+    description: Signing requests and audit log
+  - name: stats
+    description: Dashboard statistics
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /keys:
+    get:
+      operationId: listKeys
+      tags: [keys]
+      summary: List all stored npubs
+      responses:
+        "200":
+          description: List of keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NostrKey"
+    post:
+      operationId: createKey
+      tags: [keys]
+      summary: Add a new npub identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyBody"
+      responses:
+        "201":
+          description: Key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NostrKey"
+
+  /keys/{id}:
+    get:
+      operationId: getKey
+      tags: [keys]
+      summary: Get a specific key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NostrKey"
+        "404":
+          description: Key not found
+    delete:
+      operationId: deleteKey
+      tags: [keys]
+      summary: Remove a key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Key deleted
+
+  /signing/pending:
+    get:
+      operationId: listPendingRequests
+      tags: [signing]
+      summary: List pending signing requests awaiting confirmation
+      responses:
+        "200":
+          description: Pending requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SigningRequest"
+
+  /signing/pending/{id}/approve:
+    post:
+      operationId: approveSigningRequest
+      tags: [signing]
+      summary: Approve and sign a pending request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Request approved and signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigningResult"
+        "404":
+          description: Request not found
+
+  /signing/pending/{id}/reject:
+    post:
+      operationId: rejectSigningRequest
+      tags: [signing]
+      summary: Reject a pending signing request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Request rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigningRequest"
+        "404":
+          description: Request not found
+
+  /signing/log:
+    get:
+      operationId: getAuditLog
+      tags: [signing]
+      summary: Get the append-only audit log
+      parameters:
+        - name: keyId
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEntry"
+                  total:
+                    type: integer
+                required:
+                  - entries
+                  - total
+
+  /stats/summary:
+    get:
+      operationId: getStatsSummary
+      tags: [stats]
+      summary: Dashboard summary statistics
+      responses:
+        "200":
+          description: Summary stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsSummary"
+
+  /stats/activity:
+    get:
+      operationId: getActivityTimeline
+      tags: [stats]
+      summary: Signing activity over time (last 30 days)
+      responses:
+        "200":
+          description: Activity timeline
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityPoint"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    NostrKey:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        npub:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        signingCount:
+          type: integer
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - label
+        - npub
+        - createdAt
+        - signingCount
+
+    CreateKeyBody:
+      type: object
+      properties:
+        label:
+          type: string
+        npub:
+          type: string
+      required:
+        - label
+        - npub
+
+    SigningRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        keyId:
+          type: string
+        npub:
+          type: string
+        eventKind:
+          type: integer
+        eventHex:
+          type: string
+        clientFingerprint:
+          type: string
+        transport:
+          type: string
+          enum: [websocket, qr, local]
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - keyId
+        - npub
+        - eventKind
+        - eventHex
+        - clientFingerprint
+        - transport
+        - status
+        - createdAt
+
+    SigningResult:
+      type: object
+      properties:
+        requestId:
+          type: string
+        signature:
+          type: string
+        signedAt:
+          type: string
+          format: date-time
+      required:
+        - requestId
+        - signature
+        - signedAt
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        keyId:
+          type: string
+        npub:
+          type: string
+        eventKind:
+          type: integer
+        action:
+          type: string
+          enum: [approved, rejected]
+        transport:
+          type: string
+        clientFingerprint:
+          type: string
+        hash:
+          type: string
+        prevHash:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - id
+        - keyId
+        - npub
+        - eventKind
+        - action
+        - transport
+        - clientFingerprint
+        - hash
+        - timestamp
+
+    StatsSummary:
+      type: object
+      properties:
+        totalKeys:
+          type: integer
+        totalSigned:
+          type: integer
+        totalRejected:
+          type: integer
+        pendingCount:
+          type: integer
+        todaySigned:
+          type: integer
+      required:
+        - totalKeys
+        - totalSigned
+        - totalRejected
+        - pendingCount
+        - todaySigned
+
+    ActivityPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        approved:
+          type: integer
+        rejected:
+          type: integer
+      required:
+        - date
+        - approved
+        - rejected
