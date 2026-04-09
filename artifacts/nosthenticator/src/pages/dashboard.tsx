@@ -1,145 +1,233 @@
-import { useGetStatsSummary, useGetActivityTimeline } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, Key, CheckCircle, ShieldAlert } from "lucide-react";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useState } from "react";
+import { useGetAllCodes, useToggleFavorite, getGetAllCodesQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Search, Star, RefreshCw } from "lucide-react";
+import { useLocation } from "wouter";
 
-export default function Dashboard() {
-  const { data: stats, isLoading: statsLoading } = useGetStatsSummary();
-  const { data: timeline, isLoading: timelineLoading } = useGetActivityTimeline();
+interface LiveCode {
+  credentialId: string;
+  label: string;
+  issuer: string;
+  code: string;
+  timeRemaining: number;
+  period: number;
+  digits: number;
+  favorite: boolean;
+}
+
+function CountdownRing({ timeRemaining, period }: { timeRemaining: number; period: number }) {
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  const progress = timeRemaining / period;
+  const strokeDashoffset = circumference * (1 - progress);
+  const isLow = timeRemaining <= 5;
 
   return (
-    <div className="space-y-8 font-mono">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">System Overview</h1>
-        <p className="text-muted-foreground mt-2">Hardware-grade Nostr identity controller.</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Total Keys"
-          value={stats?.totalKeys}
-          icon={Key}
-          loading={statsLoading}
+    <div className="relative w-10 h-10 flex-shrink-0">
+      <svg className="w-10 h-10 -rotate-90" viewBox="0 0 40 40">
+        <circle
+          cx="20"
+          cy="20"
+          r={radius}
+          fill="none"
+          stroke="hsl(var(--muted))"
+          strokeWidth="3"
         />
-        <StatCard
-          title="Pending Requests"
-          value={stats?.pendingCount}
-          icon={ShieldAlert}
-          loading={statsLoading}
-          valueClassName={stats?.pendingCount ? "text-accent" : ""}
+        <circle
+          cx="20"
+          cy="20"
+          r={radius}
+          fill="none"
+          stroke={isLow ? "hsl(var(--destructive))" : "hsl(var(--primary))"}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s ease" }}
         />
-        <StatCard
-          title="Total Signatures"
-          value={stats?.totalSigned}
-          icon={CheckCircle}
-          loading={statsLoading}
-        />
-        <StatCard
-          title="Today's Activity"
-          value={stats?.todaySigned}
-          icon={Activity}
-          loading={statsLoading}
-        />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Signature Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[300px] w-full">
-            {timelineLoading ? (
-              <Skeleton className="w-full h-full" />
-            ) : timeline && timeline.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={timeline}>
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(value) => `${value}`}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        return (
-                          <div className="bg-popover border border-border p-2 rounded-sm shadow-md font-mono text-sm">
-                            <div className="text-muted-foreground mb-1">{payload[0].payload.date}</div>
-                            <div className="text-primary">Approved: {payload[0].value}</div>
-                            {payload[1] && <div className="text-destructive">Rejected: {payload[1].value}</div>}
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Line
-                    type="step"
-                    dataKey="approved"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="step"
-                    dataKey="rejected"
-                    stroke="hsl(var(--destructive))"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-muted-foreground border border-dashed border-border rounded-sm">
-                No activity data available
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      </svg>
+      <span
+        className={`absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums ${isLow ? "text-destructive" : "text-muted-foreground"}`}
+      >
+        {timeRemaining}s
+      </span>
     </div>
   );
 }
 
-function StatCard({ 
-  title, 
-  value, 
-  icon: Icon, 
-  loading,
-  valueClassName
-}: { 
-  title: string; 
-  value?: number; 
-  icon: React.ElementType; 
-  loading?: boolean;
-  valueClassName?: string;
-}) {
+function CodeCard({ code, onToggleFavorite }: { code: LiveCode; onToggleFavorite: (id: string) => void }) {
+  const formatted = code.digits === 6
+    ? `${code.code.slice(0, 3)} ${code.code.slice(3)}`
+    : code.code;
+
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">
-          {title}
-        </CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <Skeleton className="h-8 w-20" />
-        ) : (
-          <div className={`text-2xl font-bold ${valueClassName || ""}`} data-testid={`stat-${title.toLowerCase().replace(/\s+/g, '-')}`}>
-            {value !== undefined ? value : "-"}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div
+      className="flex items-center gap-4 rounded-xl border bg-card px-4 py-3 shadow-sm hover:shadow-md transition-shadow"
+      data-testid={`code-card-${code.credentialId}`}
+    >
+      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary text-sm">
+        {(code.issuer || code.label).slice(0, 2).toUpperCase()}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="font-medium text-sm truncate text-foreground">{code.label}</span>
+          {code.favorite && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Favorite</Badge>
+          )}
+        </div>
+        <div
+          className="font-mono text-xl font-bold tracking-widest text-primary tabular-nums"
+          data-testid={`code-value-${code.credentialId}`}
+          aria-label={`Code: ${formatted}`}
+        >
+          {formatted}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <CountdownRing timeRemaining={code.timeRemaining} period={code.period} />
+        <button
+          onClick={() => onToggleFavorite(code.credentialId)}
+          className="p-1 rounded-md hover:bg-muted transition-colors"
+          aria-label={code.favorite ? "Remove from favorites" : "Add to favorites"}
+          data-testid={`favorite-btn-${code.credentialId}`}
+        >
+          <Star
+            className={`h-4 w-4 transition-colors ${code.favorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`}
+          />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const [search, setSearch] = useState("");
+  const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
+  const toggleFavorite = useToggleFavorite();
+
+  const { data: codes, isLoading, isRefetching } = useGetAllCodes({
+    query: {
+      queryKey: getGetAllCodesQueryKey(),
+      refetchInterval: 5000,
+    },
+  });
+
+  const allCodes = (codes as LiveCode[] | undefined) ?? [];
+
+  const filtered = allCodes.filter((c) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return c.label.toLowerCase().includes(q) || c.issuer.toLowerCase().includes(q);
+  });
+
+  const favorites = filtered.filter((c) => c.favorite);
+  const others = filtered.filter((c) => !c.favorite);
+
+  const handleToggleFavorite = (id: string) => {
+    toggleFavorite.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetAllCodesQueryKey() });
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="space-y-6 pb-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Codes</h1>
+          <p className="text-sm text-muted-foreground">
+            {allCodes.length} account{allCodes.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isRefetching && (
+            <RefreshCw className="h-4 w-4 text-muted-foreground animate-spin" />
+          )}
+          <Button
+            size="sm"
+            onClick={() => navigate("/add")}
+            data-testid="add-account-btn"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search accounts..."
+          className="pl-9"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          data-testid="search-input"
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-16 rounded-xl" />
+          ))}
+        </div>
+      ) : allCodes.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <div className="text-4xl mb-4">🔐</div>
+          <p className="text-sm font-medium">No accounts yet</p>
+          <p className="text-xs mt-1">Add your first authenticator account to get started.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={() => navigate("/add")}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add account
+          </Button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">
+          No accounts match your search.
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {favorites.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                Favorites
+              </p>
+              {favorites.map((code) => (
+                <CodeCard key={code.credentialId} code={code} onToggleFavorite={handleToggleFavorite} />
+              ))}
+            </div>
+          )}
+
+          {others.length > 0 && (
+            <div className="space-y-2">
+              {favorites.length > 0 && (
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+                  All accounts
+                </p>
+              )}
+              {others.map((code) => (
+                <CodeCard key={code.credentialId} code={code} onToggleFavorite={handleToggleFavorite} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
