@@ -2,27 +2,30 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: Nosthenticator API — Nostr signing device companion
+  version: 0.2.0
+  description: Nosthenticator — secure cross-platform authenticator for OTP and Nostr identities
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
-  - name: keys
-    description: Nostr key management
-  - name: signing
-    description: Signing requests and audit log
-  - name: stats
-    description: Dashboard statistics
+  - name: credentials
+    description: Credential vault management
+  - name: codes
+    description: Live TOTP/HOTP code generation
+  - name: nostr
+    description: Nostr identity and auth request management
+  - name: activity
+    description: Activity log
+  - name: vault
+    description: Backup, export, and import
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -31,43 +34,53 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  /keys:
+  /credentials:
     get:
-      operationId: listKeys
-      tags: [keys]
-      summary: List all stored npubs
+      operationId: listCredentials
+      tags: [credentials]
+      summary: List all credentials
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [totp, hotp, nostr]
+        - name: favorites
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
-          description: List of keys
+          description: List of credentials
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/NostrKey"
+                  $ref: "#/components/schemas/Credential"
     post:
-      operationId: createKey
-      tags: [keys]
-      summary: Add a new npub identity
+      operationId: createCredential
+      tags: [credentials]
+      summary: Add a new credential
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateKeyBody"
+              $ref: "#/components/schemas/CreateCredentialBody"
       responses:
         "201":
-          description: Key created
+          description: Credential created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NostrKey"
+                $ref: "#/components/schemas/Credential"
 
-  /keys/{id}:
+  /credentials/{id}:
     get:
-      operationId: getKey
-      tags: [keys]
-      summary: Get a specific key
+      operationId: getCredential
+      tags: [credentials]
+      summary: Get a credential
       parameters:
         - name: id
           in: path
@@ -76,17 +89,40 @@ paths:
             type: string
       responses:
         "200":
-          description: Key found
+          description: Credential found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NostrKey"
+                $ref: "#/components/schemas/Credential"
         "404":
-          description: Key not found
+          description: Not found
+    put:
+      operationId: updateCredential
+      tags: [credentials]
+      summary: Update a credential label or settings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCredentialBody"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
     delete:
-      operationId: deleteKey
-      tags: [keys]
-      summary: Remove a key
+      operationId: deleteCredential
+      tags: [credentials]
+      summary: Delete a credential
       parameters:
         - name: id
           in: path
@@ -95,75 +131,145 @@ paths:
             type: string
       responses:
         "204":
-          description: Key deleted
+          description: Deleted
 
-  /signing/pending:
-    get:
-      operationId: listPendingRequests
-      tags: [signing]
-      summary: List pending signing requests awaiting confirmation
+  /credentials/{id}/favorite:
+    post:
+      operationId: toggleFavorite
+      tags: [credentials]
+      summary: Toggle favorite status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         "200":
-          description: Pending requests
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+
+  /codes:
+    get:
+      operationId: getAllCodes
+      tags: [codes]
+      summary: Get current TOTP/HOTP codes for all eligible credentials
+      responses:
+        "200":
+          description: All live codes
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/SigningRequest"
+                  $ref: "#/components/schemas/LiveCode"
 
-  /signing/pending/{id}/approve:
-    post:
-      operationId: approveSigningRequest
-      tags: [signing]
-      summary: Approve and sign a pending request
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Request approved and signed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SigningResult"
-        "404":
-          description: Request not found
-
-  /signing/pending/{id}/reject:
-    post:
-      operationId: rejectSigningRequest
-      tags: [signing]
-      summary: Reject a pending signing request
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Request rejected
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SigningRequest"
-        "404":
-          description: Request not found
-
-  /signing/log:
+  /codes/{id}:
     get:
-      operationId: getAuditLog
-      tags: [signing]
-      summary: Get the append-only audit log
+      operationId: getCode
+      tags: [codes]
+      summary: Get the current code for a single credential
       parameters:
-        - name: keyId
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveCode"
+        "404":
+          description: Not found
+
+  /nostr/requests:
+    get:
+      operationId: listNostrRequests
+      tags: [nostr]
+      summary: List pending Nostr auth requests
+      parameters:
+        - name: status
           in: query
           schema:
             type: string
+            enum: [pending, approved, rejected, expired]
+      responses:
+        "200":
+          description: Nostr auth requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NostrRequest"
+    post:
+      operationId: createNostrRequest
+      tags: [nostr]
+      summary: Submit a new Nostr auth request (for simulation/testing)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNostrRequestBody"
+      responses:
+        "201":
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NostrRequest"
+
+  /nostr/requests/{id}/approve:
+    post:
+      operationId: approveNostrRequest
+      tags: [nostr]
+      summary: Approve a Nostr auth request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NostrRequest"
+
+  /nostr/requests/{id}/reject:
+    post:
+      operationId: rejectNostrRequest
+      tags: [nostr]
+      summary: Reject a Nostr auth request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NostrRequest"
+
+  /activity:
+    get:
+      operationId: getActivity
+      tags: [activity]
+      summary: Get activity log
+      parameters:
         - name: limit
           in: query
           schema:
@@ -174,9 +280,13 @@ paths:
           schema:
             type: integer
             default: 0
+        - name: credentialId
+          in: query
+          schema:
+            type: string
       responses:
         "200":
-          description: Audit log entries
+          description: Activity entries
           content:
             application/json:
               schema:
@@ -185,40 +295,63 @@ paths:
                   entries:
                     type: array
                     items:
-                      $ref: "#/components/schemas/AuditEntry"
+                      $ref: "#/components/schemas/ActivityEntry"
                   total:
                     type: integer
                 required:
                   - entries
                   - total
 
-  /stats/summary:
+  /vault/stats:
     get:
-      operationId: getStatsSummary
-      tags: [stats]
-      summary: Dashboard summary statistics
+      operationId: getVaultStats
+      tags: [vault]
+      summary: Vault summary statistics
       responses:
         "200":
-          description: Summary stats
+          description: Vault stats
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/StatsSummary"
+                $ref: "#/components/schemas/VaultStats"
 
-  /stats/activity:
-    get:
-      operationId: getActivityTimeline
-      tags: [stats]
-      summary: Signing activity over time (last 30 days)
+  /vault/export:
+    post:
+      operationId: exportVault
+      tags: [vault]
+      summary: Export all credentials as an encrypted bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportVaultBody"
       responses:
         "200":
-          description: Activity timeline
+          description: Export bundle
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ActivityPoint"
+                $ref: "#/components/schemas/ExportBundle"
+
+  /vault/import:
+    post:
+      operationId: importVault
+      tags: [vault]
+      summary: Import credentials from an export bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportVaultBody"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
 
 components:
   schemas:
@@ -230,159 +363,321 @@ components:
       required:
         - status
 
-    NostrKey:
+    Credential:
       type: object
       properties:
         id:
           type: string
+        type:
+          type: string
+          enum: [totp, hotp, nostr]
         label:
           type: string
+        issuer:
+          type: string
+        accountName:
+          type: string
+        algorithm:
+          type: string
+          enum: [SHA1, SHA256, SHA512]
+          nullable: true
+        digits:
+          type: integer
+          nullable: true
+        period:
+          type: integer
+          nullable: true
+        counter:
+          type: integer
+          nullable: true
         npub:
           type: string
+          nullable: true
+        secretMode:
+          type: string
+          enum: [none, auth-only, full-signer]
+          nullable: true
+        favorite:
+          type: boolean
         createdAt:
           type: string
           format: date-time
-        signingCount:
-          type: integer
         lastUsedAt:
           type: string
           format: date-time
           nullable: true
       required:
         - id
+        - type
         - label
-        - npub
+        - issuer
+        - accountName
+        - favorite
         - createdAt
-        - signingCount
 
-    CreateKeyBody:
+    CreateCredentialBody:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [totp, hotp, nostr]
+        label:
+          type: string
+        issuer:
+          type: string
+        accountName:
+          type: string
+        secret:
+          type: string
+          description: Base32-encoded TOTP/HOTP secret, or nsec for Nostr
+          nullable: true
+        algorithm:
+          type: string
+          enum: [SHA1, SHA256, SHA512]
+          nullable: true
+        digits:
+          type: integer
+          nullable: true
+        period:
+          type: integer
+          nullable: true
+        npub:
+          type: string
+          nullable: true
+        secretMode:
+          type: string
+          enum: [none, auth-only, full-signer]
+          nullable: true
+      required:
+        - type
+        - label
+        - issuer
+        - accountName
+
+    UpdateCredentialBody:
       type: object
       properties:
         label:
           type: string
-        npub:
+        issuer:
           type: string
-      required:
-        - label
-        - npub
+        accountName:
+          type: string
+        favorite:
+          type: boolean
+        secretMode:
+          type: string
+          enum: [none, auth-only, full-signer]
+          nullable: true
 
-    SigningRequest:
+    LiveCode:
+      type: object
+      properties:
+        credentialId:
+          type: string
+        label:
+          type: string
+        issuer:
+          type: string
+        code:
+          type: string
+        timeRemaining:
+          type: integer
+          description: Seconds until code refreshes
+        period:
+          type: integer
+        digits:
+          type: integer
+        favorite:
+          type: boolean
+      required:
+        - credentialId
+        - label
+        - issuer
+        - code
+        - timeRemaining
+        - period
+        - digits
+        - favorite
+
+    NostrRequest:
       type: object
       properties:
         id:
           type: string
-        keyId:
+        credentialId:
           type: string
+          nullable: true
         npub:
           type: string
-        eventKind:
-          type: integer
-        eventHex:
+          nullable: true
+        requesterName:
           type: string
-        clientFingerprint:
+        requesterOrigin:
           type: string
-        transport:
+        actionType:
           type: string
-          enum: [websocket, qr, local]
+          enum: [sign_in, authorize_action, link_device, recovery, key_rotation]
+        actionSummary:
+          type: string
+        riskLevel:
+          type: string
+          enum: [low, medium, high]
         status:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, expired]
         createdAt:
+          type: string
+          format: date-time
+        expiresAt:
           type: string
           format: date-time
       required:
         - id
-        - keyId
-        - npub
-        - eventKind
-        - eventHex
-        - clientFingerprint
-        - transport
+        - requesterName
+        - requesterOrigin
+        - actionType
+        - actionSummary
+        - riskLevel
         - status
         - createdAt
+        - expiresAt
 
-    SigningResult:
+    CreateNostrRequestBody:
       type: object
       properties:
-        requestId:
+        credentialId:
           type: string
-        signature:
+          nullable: true
+        requesterName:
           type: string
-        signedAt:
+        requesterOrigin:
           type: string
-          format: date-time
+        actionType:
+          type: string
+          enum: [sign_in, authorize_action, link_device, recovery, key_rotation]
+        actionSummary:
+          type: string
+        riskLevel:
+          type: string
+          enum: [low, medium, high]
       required:
-        - requestId
-        - signature
-        - signedAt
+        - requesterName
+        - requesterOrigin
+        - actionType
+        - actionSummary
+        - riskLevel
 
-    AuditEntry:
+    ActivityEntry:
       type: object
       properties:
         id:
           type: string
-        keyId:
-          type: string
-        npub:
-          type: string
-        eventKind:
-          type: integer
-        action:
-          type: string
-          enum: [approved, rejected]
-        transport:
-          type: string
-        clientFingerprint:
-          type: string
-        hash:
-          type: string
-        prevHash:
+        credentialId:
           type: string
           nullable: true
+        credentialLabel:
+          type: string
+          nullable: true
+        eventType:
+          type: string
+          enum: [auth_approved, auth_rejected, code_viewed, export, import, credential_added, credential_deleted, nostr_approved, nostr_rejected]
+        description:
+          type: string
         timestamp:
           type: string
           format: date-time
       required:
         - id
-        - keyId
-        - npub
-        - eventKind
-        - action
-        - transport
-        - clientFingerprint
-        - hash
+        - eventType
+        - description
         - timestamp
 
-    StatsSummary:
+    VaultStats:
       type: object
       properties:
-        totalKeys:
+        totalCredentials:
           type: integer
-        totalSigned:
+        totpCount:
           type: integer
-        totalRejected:
+        nostrCount:
           type: integer
-        pendingCount:
+        pendingRequests:
           type: integer
-        todaySigned:
+        todayApprovals:
           type: integer
-      required:
-        - totalKeys
-        - totalSigned
-        - totalRejected
-        - pendingCount
-        - todaySigned
-
-    ActivityPoint:
-      type: object
-      properties:
-        date:
+        lastActivity:
           type: string
-        approved:
-          type: integer
-        rejected:
-          type: integer
+          format: date-time
+          nullable: true
       required:
-        - date
-        - approved
-        - rejected
+        - totalCredentials
+        - totpCount
+        - nostrCount
+        - pendingRequests
+        - todayApprovals
+
+    ExportVaultBody:
+      type: object
+      properties:
+        includeSecrets:
+          type: boolean
+          default: false
+        password:
+          type: string
+          nullable: true
+      required:
+        - includeSecrets
+
+    ExportBundle:
+      type: object
+      properties:
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        itemCount:
+          type: integer
+        includesSecrets:
+          type: boolean
+        data:
+          type: string
+          description: Base64-encoded encrypted JSON payload
+        checksum:
+          type: string
+      required:
+        - version
+        - createdAt
+        - itemCount
+        - includesSecrets
+        - data
+        - checksum
+
+    ImportVaultBody:
+      type: object
+      properties:
+        data:
+          type: string
+          description: Base64-encoded bundle data
+        password:
+          type: string
+          nullable: true
+      required:
+        - data
+
+    ImportResult:
+      type: object
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+        - imported
+        - skipped
+        - errors
