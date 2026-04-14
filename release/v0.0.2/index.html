@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nosthenticator v0.0.2</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #060912;
+        --panel: #101726;
+        --panel-2: #171f33;
+        --text: #eaf2ff;
+        --muted: #95a2bd;
+        --accent: #6ee7b7;
+        --danger: #fb7185;
+        --border: #25304a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+        background: linear-gradient(180deg, #070c18 0%, #05070e 100%);
+        color: var(--text);
+      }
+      .app { max-width: 1100px; margin: 0 auto; padding: 20px; }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      .subtitle { margin: 0 0 20px; color: var(--muted); }
+      .grid { display: grid; gap: 16px; }
+      @media (min-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .card h2 { margin: 0 0 12px; font-size: 16px; }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; }
+      .row > * { flex: 1 1 180px; }
+      input, textarea, select, button {
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        padding: 10px 12px;
+        font: inherit;
+      }
+      textarea { min-height: 92px; resize: vertical; }
+      button { cursor: pointer; background: #19305f; }
+      button:hover { filter: brightness(1.1); }
+      button.secondary { background: #29324a; }
+      button.danger { background: #5b1f35; }
+      ul { list-style: none; margin: 0; padding: 0; }
+      li { border-top: 1px solid var(--border); padding: 10px 0; }
+      li:first-child { border-top: 0; padding-top: 0; }
+      code { color: var(--accent); word-break: break-all; }
+      .muted { color: var(--muted); font-size: 13px; }
+      .pill {
+        display: inline-block;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ok { color: var(--accent); }
+      .danger-text { color: var(--danger); }
+      .footer { margin-top: 18px; color: var(--muted); font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <h1>Nosthenticator <span class="pill">v0.0.2</span></h1>
+      <p class="subtitle">Clean local browser build. No backend required. Data stored in localStorage.</p>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Register Identity</h2>
+          <div class="row">
+            <input id="name" placeholder="Label (e.g. personal)" />
+            <input id="npub" placeholder="npub..." />
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button id="addKey">Add Identity</button>
+            <button id="clearKeys" class="danger">Clear All</button>
+          </div>
+          <p class="muted">Each signing action requires explicit confirmation and gets recorded in an append-only hash-chained log.</p>
+          <ul id="keys"></ul>
+        </article>
+
+        <article class="card">
+          <h2>Create Signing Request</h2>
+          <div class="row">
+            <select id="keySelect"></select>
+            <input id="kind" type="number" min="0" value="1" />
+          </div>
+          <textarea id="event" placeholder='{"content":"Hello Nostr"}'></textarea>
+          <div class="row" style="margin-top:10px;">
+            <button id="queue">Queue Request</button>
+            <button id="resetRequests" class="secondary">Clear Pending</button>
+          </div>
+          <ul id="pending"></ul>
+        </article>
+      </section>
+
+      <section class="card" style="margin-top:16px;">
+        <h2>Audit Log (hash chain)</h2>
+        <ul id="audit"></ul>
+      </section>
+
+      <p class="footer">Run locally: <code>cd release/v0.0.2 && python3 -m http.server 4173</code> then open <code>http://localhost:4173</code>.</p>
+    </main>
+
+    <script>
+      const STORE = "nosthenticator.v0.0.2";
+      const state = JSON.parse(localStorage.getItem(STORE) || "{\"keys\":[],\"pending\":[],\"audit\":[]}");
+
+      const el = {
+        name: document.getElementById("name"),
+        npub: document.getElementById("npub"),
+        addKey: document.getElementById("addKey"),
+        clearKeys: document.getElementById("clearKeys"),
+        keys: document.getElementById("keys"),
+        keySelect: document.getElementById("keySelect"),
+        kind: document.getElementById("kind"),
+        event: document.getElementById("event"),
+        queue: document.getElementById("queue"),
+        resetRequests: document.getElementById("resetRequests"),
+        pending: document.getElementById("pending"),
+        audit: document.getElementById("audit"),
+      };
+
+      const save = () => localStorage.setItem(STORE, JSON.stringify(state));
+      const short = (v) => v.length > 24 ? `${v.slice(0, 12)}...${v.slice(-8)}` : v;
+      const uid = () => Math.random().toString(16).slice(2) + Date.now().toString(16);
+
+      async function hash(input) {
+        const bytes = new TextEncoder().encode(input);
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+      }
+
+      async function appendAudit(entry) {
+        const prev = state.audit[state.audit.length - 1]?.hash || "GENESIS";
+        const payload = JSON.stringify(entry) + prev;
+        const currentHash = await hash(payload);
+        state.audit.unshift({ ...entry, prev, hash: currentHash, timestamp: new Date().toISOString() });
+        save();
+        render();
+      }
+
+      function render() {
+        el.keys.innerHTML = state.keys.map(k => `
+          <li>
+            <strong>${k.name}</strong><br />
+            <code>${short(k.npub)}</code>
+          </li>
+        `).join("") || '<li class="muted">No identities yet.</li>';
+
+        el.keySelect.innerHTML = state.keys.map(k => `<option value="${k.id}">${k.name} (${short(k.npub)})</option>`).join("")
+          || '<option value="">No identities</option>';
+
+        el.pending.innerHTML = state.pending.map(r => `
+          <li>
+            <div><strong>${r.keyName}</strong> • kind ${r.kind}</div>
+            <div class="muted">Request ID: <code>${r.id}</code></div>
+            <div class="row" style="margin-top:8px;">
+              <button data-approve="${r.id}">Approve</button>
+              <button data-reject="${r.id}" class="danger">Reject</button>
+            </div>
+          </li>
+        `).join("") || '<li class="muted">No pending signing requests.</li>';
+
+        el.audit.innerHTML = state.audit.map(a => `
+          <li>
+            <div><strong class="${a.action === "approved" ? "ok" : "danger-text"}">${a.action.toUpperCase()}</strong> • ${a.keyName}</div>
+            <div class="muted">${a.timestamp}</div>
+            <div class="muted">prev: <code>${short(a.prev)}</code></div>
+            <div class="muted">hash: <code>${short(a.hash)}</code></div>
+          </li>
+        `).join("") || '<li class="muted">No audit events yet.</li>';
+      }
+
+      el.addKey.onclick = () => {
+        const name = el.name.value.trim();
+        const npub = el.npub.value.trim();
+        if (!name || !npub.startsWith("npub")) {
+          alert("Use a label and an npub value.");
+          return;
+        }
+        state.keys.push({ id: uid(), name, npub });
+        el.name.value = "";
+        el.npub.value = "";
+        save();
+        render();
+      };
+
+      el.clearKeys.onclick = () => {
+        if (!confirm("Clear all identities, pending requests, and audit history?")) return;
+        state.keys = [];
+        state.pending = [];
+        state.audit = [];
+        save();
+        render();
+      };
+
+      el.queue.onclick = () => {
+        const keyId = el.keySelect.value;
+        const key = state.keys.find(k => k.id === keyId);
+        if (!key) return alert("Add an identity first.");
+
+        let parsed = {};
+        try { parsed = JSON.parse(el.event.value || "{}"); }
+        catch { return alert("Event JSON is invalid."); }
+
+        state.pending.unshift({
+          id: uid(),
+          keyId: key.id,
+          keyName: key.name,
+          kind: Number(el.kind.value || 1),
+          event: parsed,
+        });
+        el.event.value = "";
+        save();
+        render();
+      };
+
+      el.resetRequests.onclick = () => {
+        state.pending = [];
+        save();
+        render();
+      };
+
+      el.pending.onclick = async (event) => {
+        const approveId = event.target.getAttribute("data-approve");
+        const rejectId = event.target.getAttribute("data-reject");
+        const targetId = approveId || rejectId;
+        if (!targetId) return;
+
+        const idx = state.pending.findIndex(r => r.id === targetId);
+        if (idx === -1) return;
+        const [request] = state.pending.splice(idx, 1);
+
+        await appendAudit({
+          action: approveId ? "approved" : "rejected",
+          keyName: request.keyName,
+          requestId: request.id,
+          eventHash: await hash(JSON.stringify(request.event)),
+        });
+
+        save();
+        render();
+      };
+
+      render();
+    </script>
+  </body>
+</html>

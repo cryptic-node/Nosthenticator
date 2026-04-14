@@ -4,6 +4,22 @@
 
 Nosthenticator is a Nostr-native signing device companion — the "Coldcard of Nostr identities." It provides hardware-class signing security with explicit confirmation required for every operation, plus an append-only cryptographic audit log.
 
+## Local browser release (v0.0.2)
+
+A clean, dependency-free browser build is available at:
+
+- `release/v0.0.2/index.html`
+
+Run locally:
+
+```bash
+cd release/v0.0.2
+python3 -m http.server 4173
+# open http://localhost:4173
+```
+
+This release works entirely in the browser and stores data in `localStorage`.
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces
@@ -28,6 +44,8 @@ lib/
   api-spec/         — OpenAPI spec (source of truth)
   api-client-react/ — Generated React Query hooks
   api-zod/          — Generated Zod validation schemas
+release/
+  v0.0.2/           — Standalone browser release (single HTML file)
 ```
 
 ## Features
